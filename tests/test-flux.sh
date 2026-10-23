@@ -144,6 +144,21 @@ check "a version is a folder name" "0" "$(status flux_carbon_version_ok 2.0.262-
 check "a path is not a version" "1" "$(status flux_carbon_version_ok ../x)"
 check "empty is not a version" "1" "$(status flux_carbon_version_ok '')"
 
+cfg="${tmp}/carbon-config.json"
+check "no config: one is written" "created carbon-config.json with the self-updater off" "$(flux_carbon_disable_selfupdate "${cfg}")"
+check "no config: self-updater off" "False" "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["SelfUpdating"]["Enabled"])' "${cfg}")"
+printf '\xef\xbb\xbf{"Rcon": true, "SelfUpdating": {"Enabled": true, "HookUpdates": true}, "Language": "en"}' >"${cfg}"
+check "a config with it on (and a BOM): turned off" "turned Carbon's self-updater off" "$(flux_carbon_disable_selfupdate "${cfg}")"
+check "the owner's other settings are kept" "True en True" \
+  "$(python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); print(c["Rcon"], c["Language"], c["SelfUpdating"]["HookUpdates"])' "${cfg}")"
+check "already off: nothing to say" "" "$(flux_carbon_disable_selfupdate "${cfg}")"
+before="$(stat -c %Y.%s "${cfg}")"
+check "already off: the file is not rewritten" "${before}" "$(stat -c %Y.%s "${cfg}")"
+echo '{"broken' >"${cfg}"
+check "not JSON: said so" "1" "$(flux_carbon_disable_selfupdate "${cfg}" | grep -c 'was not valid JSON')"
+check "not JSON: set aside" "1" "$(find "${tmp}" -name 'carbon-config.json.broken.*' | wc -l)"
+check "not JSON: replaced with one that has it off" "False" "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["SelfUpdating"]["Enabled"])' "${cfg}")"
+
 # --- interrupted saves ---------------------------------------------------------------------------
 w="${tmp}/world"
 mkdir -p "${w}"

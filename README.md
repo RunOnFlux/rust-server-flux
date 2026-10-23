@@ -95,3 +95,4 @@ docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:stable -x scripts/*.s
 
 - **1.0.0** (2026-10-23): first release.
 - **1.0.1** (2026-10-23): repairs a save that was cut off while being written, before each start.
+- **1.0.2** (2026-10-23): Carbon servers hung at boot forever: Carbon's self-updater forks `curl`, and on Flux nodes that fork never reaches exec. It is now turned off in `carbon/config.json` before every start (the image keeps Carbon updated itself), and game processes left behind by a server that ended are killed before the next one starts.

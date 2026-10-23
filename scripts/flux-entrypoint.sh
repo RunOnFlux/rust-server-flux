@@ -219,6 +219,13 @@ prepare_framework() {
     flux_log "ERROR could not install Carbon ${version} into ${FLUX_CARBON_DIR}: starting WITHOUT plugins"
     return 0
   fi
+  # Before every start: an owner can turn it back on from the file browser.
+  local note
+  if ! note="$(flux_carbon_disable_selfupdate "${FLUX_CARBON_DIR}/config.json" 2>&1)"; then
+    flux_log "ERROR could not turn Carbon's self-updater off (${note}): starting WITHOUT plugins, Carbon would hang at boot"
+    return 0
+  fi
+  [ -n "${note}" ] && flux_log "Carbon: ${note}"
   # What carbon/tools/environment.sh exports, written out: sourcing it here would put the
   # preload into the supervisor's own environment, and every tool it runs would load it.
   GAME_ENV+=(
@@ -286,6 +293,9 @@ wait_for_generation() {
     kill -0 "${game_pid}" 2>/dev/null || break
   done
   game_pid=""
+  local left
+  left="$(flux_kill_leftover_games)"
+  [ -n "${left}" ] && flux_log "WARN ${left} game process(es) outlived the server; ended them"
 }
 
 /opt/flux/flux-updatewatch.sh &

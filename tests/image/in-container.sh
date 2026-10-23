@@ -52,6 +52,11 @@ printf '%s\n' "$@" >/tmp/stub/args
 echo "$$" >>/tmp/stub/starts
 trap 'echo saved >>/tmp/stub/saves; exit 0' TERM
 echo "Server startup complete"
+# A forked child that never ends, like the Mono fork that never reaches exec.
+if [ -f /tmp/stub/fork ]; then
+  rm -f /tmp/stub/fork
+  (trap '' TERM; while :; do sleep 0.2; done) &
+fi
 while sleep 0.2; do
   [ -f /tmp/stub/crash ] && { rm -f /tmp/stub/crash; exit 139; }
 done
@@ -163,6 +168,15 @@ check "carbon: preloaded" "DOORSTOP_ENABLED=1|DOORSTOP_TARGET_ASSEMBLY=/srv/rust
   "$(cat "${stub}"/env.* | paste -sd'|')"
 check "carbon: carbon-active names the version" "9.9.1-test" "$(cat /tmp/flux/carbon-active)"
 check "carbon: the supervisor itself is not preloaded" "" "$(tr '\0' '\n' </proc/${sup}/environ | grep LD_PRELOAD)"
+check "carbon: the self-updater is off before the first start" "False" \
+  "$(python3 -c 'import json; print(json.load(open("/srv/rust/carbon/config.json"))["SelfUpdating"]["Enabled"])')"
+# Turned back on (or Carbon's defaults): off again at the next start.
+python3 -c 'import json; json.dump({"Rcon": True, "SelfUpdating": {"Enabled": True}}, open("/srv/rust/carbon/config.json", "w"))'
+flux-restart "planned: test" 0 >/dev/null 2>&1
+wait_for '[ "$(starts)" -ge 2 ]' 20
+check "carbon: off again at every start" "False True" \
+  "$(python3 -c 'import json; c=json.load(open("/srv/rust/carbon/config.json")); print(c["SelfUpdating"]["Enabled"], c["Rcon"])')"
+check "carbon: logged" "1" "$(grep -c "Carbon: turned Carbon's self-updater off" /tmp/supervisor.log)"
 stop_supervisor
 
 # Carbon unreachable, but cached: still a Carbon server.
@@ -206,6 +220,18 @@ wait_for "! kill -0 ${sup} 2>/dev/null" 20
 wait "${sup}" 2>/dev/null
 check "crash: over the budget the container ends with 42" "42" "$?"
 check "auto update off is said once" "1" "$(grep -c 'automatic updates are off' /tmp/supervisor.log)"
+
+# A child the game forked dies with it, before the next generation starts.
+touch "${stub}/fork"
+run_supervisor FLUX_FRAMEWORK= FLUX_AUTO_UPDATE=false
+wait_for '[ "$(starts)" -ge 1 ]' 20
+check "leftover: the stand-in forked" "0" "$(wait_for '[ "$(pgrep -c -x RustDedicated)" -ge 2 ]' 10; echo $?)"
+touch "${stub}/crash"
+wait_for '[ "$(starts)" -ge 2 ]' 20
+sleep 1
+check "leftover: one game process after the restart" "1" "$(pgrep -c -x RustDedicated)"
+check "leftover: logged" "1" "$(grep -c '1 game process(es) outlived the server; ended them' /tmp/supervisor.log)"
+stop_supervisor
 
 # --- Bad settings refuse to start --------------------------------------------------------------
 check "FLUX_FRAMEWORK=oxide refuses to start" "42" "$(FLUX_FRAMEWORK=oxide /opt/flux/flux-entrypoint.sh >/dev/null 2>&1; echo $?)"

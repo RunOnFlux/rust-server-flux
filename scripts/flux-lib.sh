@@ -275,6 +275,60 @@ flux_carbon_prune() {
   done
 }
 
+# $1 = Carbon's config.json. Turns Carbon's own self-updater off, creating the file when it is not
+# there yet (Carbon fills in the rest on its first start), and prints what it did, or nothing.
+#
+# The self-updater runs `curl` with Process.Start in Carbon.Preloader, before Carbon has even
+# logged a line. On Flux nodes the child Mono forks for that never reaches exec: it spins at 100%
+# CPU and the server hangs at boot forever, with nothing in its log after "Mono config path"
+# (seen 2026-10-23 on the first Carbon server moved to this image; the older image had no curl,
+# so the start failed at once and nothing forked). We update Carbon ourselves (carbon_release and
+# the update watch), so nothing is lost. A file that is not JSON is set aside: Carbon would replace
+# it with its defaults, self-updater on.
+flux_carbon_disable_selfupdate() {
+  python3 - "$1" <<'EOF'
+import json, os, sys, time
+path = sys.argv[1]
+try:
+    with open(path, encoding="utf-8-sig") as f:
+        config = json.load(f)
+    if not isinstance(config, dict):
+        raise ValueError("not an object")
+except FileNotFoundError:
+    config, note = {}, "created %s with the self-updater off" % os.path.basename(path)
+except (ValueError, UnicodeDecodeError):
+    aside = "%s.broken.%d" % (path, int(time.time()))
+    os.replace(path, aside)
+    config, note = {}, "%s was not valid JSON (kept as %s); wrote one with the self-updater off" % (
+        os.path.basename(path), os.path.basename(aside))
+else:
+    note = "turned Carbon's self-updater off"
+updating = config.get("SelfUpdating")
+if not isinstance(updating, dict):
+    updating = config["SelfUpdating"] = {}
+if updating.get("Enabled") is False:
+    sys.exit(0)
+updating["Enabled"] = False
+tmp = path + ".flux-tmp"
+with open(tmp, "w", encoding="utf-8") as f:
+    json.dump(config, f, indent=2)
+os.replace(tmp, path)
+print(note)
+EOF
+}
+
+# Kills every game process still alive between two generations, and prints how many it found. A
+# child the game forked outlives a kill of the game itself: it is reparented to us and keeps a core
+# busy beside the next generation (seen 2026-10-23, the self-updater fork above, for hours).
+flux_kill_leftover_games() {
+  local pids
+  pids="$(pgrep -x "${FLUX_GAME_PROCESS}" 2>/dev/null)"
+  [ -n "${pids}" ] || return 0
+  # shellcheck disable=SC2086  # one pid per word
+  kill -KILL ${pids} 2>/dev/null
+  wc -w <<<"${pids}"
+}
+
 # $1 = a Carbon version string. True when it is safe as a folder name.
 flux_carbon_version_ok() {
   [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]{0,99}$ ]]
