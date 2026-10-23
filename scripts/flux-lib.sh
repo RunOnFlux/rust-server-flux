@@ -281,6 +281,41 @@ flux_carbon_version_ok() {
 }
 
 # ---------------------------------------------------------------------------------------------
+# The world on disk.
+# ---------------------------------------------------------------------------------------------
+
+# $1 = a server identity folder. Repairs a save that was cut off while it was being written, and
+# prints one line per file it changed.
+#
+# RustDedicated writes `<world>.sav.new` and then puts it in place as `<world>.sav`; a `.sav.new`
+# left on disk means that save never finished (none is left after a normal save, checked on a
+# real server). Which copy is whole depends on where it was cut:
+#
+#   .sav newer than .sav.new   cut while replacing .sav: .sav is the truncated one, .sav.new whole
+#   .sav older (or missing)    cut while writing .sav.new: .sav is the previous save, whole
+#
+# Left alone, a truncated .sav fails to load ("Error loading save ... EndOfStreamException") and
+# the server can hang right after with the CPU pegged and nothing more in its log (seen
+# 2026-10-23 on a server cut mid-save six days earlier). The copy set aside is renamed
+# `broken-<name>.<epoch>`, which the game never loads and the dashboard's next wipe clears.
+flux_recover_interrupted_saves() {
+  local dir="$1" new sav stamp
+  stamp="$(date -u +%s)"
+  for new in "${dir}"/*.sav.new; do
+    [ -f "${new}" ] || continue
+    sav="${new%.new}"
+    if [ ! -e "${sav}" ] || [ "${sav}" -nt "${new}" ]; then
+      [ -e "${sav}" ] && mv -f "${sav}" "${dir}/broken-${sav##*/}.${stamp}"
+      mv -f "${new}" "${sav}"
+      printf 'restored %s from %s\n' "${sav##*/}" "${new##*/}"
+    else
+      mv -f "${new}" "${dir}/broken-${sav##*/}.${stamp}"
+      printf 'kept %s; set aside an unfinished %s\n' "${sav##*/}" "${new##*/}"
+    fi
+  done
+}
+
+# ---------------------------------------------------------------------------------------------
 # The running server.
 # ---------------------------------------------------------------------------------------------
 

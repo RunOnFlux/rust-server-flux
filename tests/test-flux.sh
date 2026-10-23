@@ -144,6 +144,34 @@ check "a version is a folder name" "0" "$(status flux_carbon_version_ok 2.0.262-
 check "a path is not a version" "1" "$(status flux_carbon_version_ok ../x)"
 check "empty is not a version" "1" "$(status flux_carbon_version_ok '')"
 
+# --- interrupted saves ---------------------------------------------------------------------------
+w="${tmp}/world"
+mkdir -p "${w}"
+# Cut while replacing .sav (the 2026-10-17 case): .sav is 50 ms newer and truncated.
+printf 'whole' >"${w}/proceduralmap.4500.1337.289.sav.new"
+printf 'cut' >"${w}/proceduralmap.4500.1337.289.sav"
+touch -d '2026-10-17 15:55:45.603' "${w}/proceduralmap.4500.1337.289.sav.new"
+touch -d '2026-10-17 15:55:45.653' "${w}/proceduralmap.4500.1337.289.sav"
+out="$(flux_recover_interrupted_saves "${w}")"
+check "a .sav cut while being replaced is restored from .sav.new" "whole" "$(cat "${w}/proceduralmap.4500.1337.289.sav")"
+check "and says so" "restored proceduralmap.4500.1337.289.sav from proceduralmap.4500.1337.289.sav.new" "${out}"
+check "no .sav.new is left" "1" "$(status test -e "${w}/proceduralmap.4500.1337.289.sav.new")"
+check "the cut copy is set aside" "cut" "$(cat "${w}"/broken-proceduralmap.4500.1337.289.sav.*)"
+rm -f "${w}"/broken-*
+# Cut while writing .sav.new: .sav is the previous save and stays.
+printf 'half' >"${w}/proceduralmap.4500.1337.289.sav.new"
+touch -d '2026-10-17 15:55:46' "${w}/proceduralmap.4500.1337.289.sav.new"
+flux_recover_interrupted_saves "${w}" >/dev/null
+check "a .sav.new cut while being written leaves .sav alone" "whole" "$(cat "${w}/proceduralmap.4500.1337.289.sav")"
+check "and is set aside" "half" "$(cat "${w}"/broken-proceduralmap.4500.1337.289.sav.*)"
+rm -f "${w}"/broken-*
+# No .sav at all: the .sav.new is all there is.
+rm -f "${w}"/*.sav
+printf 'only' >"${w}/proceduralmap.4500.1337.289.sav.new"
+flux_recover_interrupted_saves "${w}" >/dev/null
+check "a lone .sav.new becomes the .sav" "only" "$(cat "${w}/proceduralmap.4500.1337.289.sav")"
+check "a normal folder is left alone" "" "$(flux_recover_interrupted_saves "${w}")"
+
 # --- flux-steam.py -------------------------------------------------------------------------------
 app_info='Redirecting stderr to /root/.steam/logs/stderr.txt
 Logging in user ... OK

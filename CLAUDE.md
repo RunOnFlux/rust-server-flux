@@ -52,5 +52,8 @@ A change to what the image does bumps `VERSION` and gets a line under "Versions"
   does not count against the restart budget.
 - **Mount order**: the install volume is the parent of the world and the Carbon mounts. Docker
   mounts by depth, so this works, and GMod's spec has run the same nesting since 2026-10.
+- **A leftover `.sav.new` is an interrupted save** (none is left after a normal one).
+  `flux_recover_interrupted_saves` decides by mtime which copy is whole; bash `-nt` compares to the
+  nanosecond, which matters because the two files are written 50 ms apart.
 - **The unit tests run with the machine's Python, not the image's.** Anything a script newly needs
   gets a check in `tests/image/in-container.sh`.

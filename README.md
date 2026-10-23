@@ -31,6 +31,9 @@ as soon as Steam lists a new build. This image changes only when its own scripts
   unreachable). The runtime (`managed`, `tools`, `native`) is refreshed; `plugins`, `configs`,
   `data`, `lang` and `extensions` are the owner's and never touched. The game runs as root, so a
   plugin FluxOS writes as root loads at once (the old image needed an inotify chown for that).
+- **A save cut off mid-write** (a `.sav.new` left on disk) is repaired before every start: the
+  whole copy becomes the `.sav`, the other is kept as `broken-<name>.<epoch>`. A truncated `.sav`
+  otherwise fails to load and can leave the server hung at boot with the CPU pegged.
 - **`docker stop`**: `server.save` over RCON, then SIGTERM. RustDedicated does not save on SIGTERM
   (it exits in about two seconds and the world is the last autosave), which is what the images this
   one replaces did on every stop.
@@ -91,3 +94,4 @@ docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:stable -x scripts/*.s
 ## Versions
 
 - **1.0.0** (2026-10-23): first release.
+- **1.0.1** (2026-10-23): repairs a save that was cut off while being written, before each start.

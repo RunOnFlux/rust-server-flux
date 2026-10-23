@@ -231,6 +231,18 @@ prepare_framework() {
   flux_log "Carbon ${version}"
 }
 
+# Before every start, not only the first: a crash or a kill mid-save cuts a save just the same.
+recover_saves() {
+  local identity line
+  identity="$(flux_arg_value server.identity "${GAME_ARGS[@]+"${GAME_ARGS[@]}"}")"
+  [ -n "${identity}" ] || identity="my_server_identity"
+  [[ "${identity}" =~ ^[A-Za-z0-9._-]+$ ]] || return 0
+  [ -d "${s}/server/${identity}" ] || return 0
+  while IFS= read -r line; do
+    [ -n "${line}" ] && flux_log "WARN the last save was cut off while it was being written: ${line}"
+  done < <(flux_recover_interrupted_saves "${s}/server/${identity}")
+}
+
 start_generation() {
   generation=$((generation + 1))
   rm -f "${FLUX_RESTART_MARKER}" "${FLUX_STARTED_AT}"
@@ -239,6 +251,7 @@ start_generation() {
   prepare_framework
   [ "${terminating}" = "1" ] && return 2
   disk_note
+  recover_saves
   flux_log "starting the server (generation ${generation})"
   date -u +%s >"${FLUX_STARTED_AT}"
   (

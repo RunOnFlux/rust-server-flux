@@ -101,6 +101,7 @@ export RCON_PASSWORD=pw
 run_supervisor() { # extra env assignments...
   rm -rf /srv/rust /tmp/flux "${stub}/starts" "${stub}/saves" "${stub}/steam-calls" "${stub}"/env.*
   mkdir -p /srv/rust
+  [ -n "${SEED_WORLD:-}" ] && "${SEED_WORLD}"
   env "$@" /opt/flux/flux-entrypoint.sh +rcon.port 28016 +rcon.password '${RCON_PASSWORD}' +server.identity test \
     >/tmp/supervisor.log 2>&1 &
   sup=$!
@@ -135,6 +136,22 @@ check "planned restart: logged as planned" "1" "$(grep -c 'planned: test: restar
 stop_supervisor
 check "stop: the container ends with 0" "0" "${stopped_rc}"
 check "stop: the world was saved" "2" "$(wc -l <"${stub}/saves")"
+
+# --- A save cut off mid-write is repaired before the start --------------------------------------
+cut_save() {
+  local w=/srv/rust/server/test
+  mkdir -p "${w}"
+  printf 'whole' >"${w}/proceduralmap.4500.1.289.sav.new"
+  printf 'cut' >"${w}/proceduralmap.4500.1.289.sav"
+  touch -d '2026-10-17 15:55:45.603' "${w}/proceduralmap.4500.1.289.sav.new"
+  touch -d '2026-10-17 15:55:45.653' "${w}/proceduralmap.4500.1.289.sav"
+}
+SEED_WORLD=cut_save run_supervisor FLUX_FRAMEWORK=
+check "cut save: the server starts" "0" "$(wait_for '[ "$(starts)" -ge 1 ]' 20; echo $?)"
+check "cut save: the whole copy is the .sav" "whole" "$(cat /srv/rust/server/test/proceduralmap.4500.1.289.sav)"
+check "cut save: no .sav.new left" "1" "$(status test -e /srv/rust/server/test/proceduralmap.4500.1.289.sav.new)"
+check "cut save: logged" "1" "$(grep -c 'the last save was cut off while it was being written: restored' /tmp/supervisor.log)"
+stop_supervisor
 
 # --- Carbon: fetched, cached, preloaded --------------------------------------------------------
 run_supervisor FLUX_FRAMEWORK=carbon
