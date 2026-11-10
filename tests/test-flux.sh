@@ -125,6 +125,18 @@ refilled() { ( export RCON_PASSWORD=secret 'SERVER_HOSTNAME=My Rust' 'SERVER_DES
 check "the live Vanilla spec is not changed by the environment" "$(expanded "${vanilla_args[@]}")" "$(refilled "${vanilla_args[@]}")"
 check "the live Modded spec is not changed either" "$(expanded "${oxide_args[@]}")" "$(refilled "${oxide_args[@]}")"
 check "the live Modded spec gains only SERVER_PORT" "$(expanded "${oxide_args[@]}")~+server.port~45000" "$(deploy_env+=(SERVER_PORT=45000); refilled "${oxide_args[@]}")"
+# Servers that moved onto this image from the older ones keep the older command lines. Each of them,
+# with only the variables a deploy of that era wrote, must also come out unchanged.
+pre_vanilla=(+server.port 28015 +rcon.port 28016 +rcon.password '${RCON_PASSWORD}' +server.identity rust +server.maxplayers 50
+  +server.hostname '${SERVER_HOSTNAME}' +server.description '${SERVER_DESCRIPTION}' -queryport 28017 +app.port 28082)
+pre_modded_18=(+rcon.port 28016 +rcon.password '${RCON_PASSWORD}' +server.identity rustcarbon +server.maxplayers 50
+  +server.hostname '${SERVER_HOSTNAME}' +server.description '${SERVER_DESCRIPTION}' -queryport 28017)
+pfeiffermax=(+server.port 28015 +rcon.port 28016 +rcon.password Testpass123 +rcon.web 1 -queryport 28017 +server.identity rustoxide
+  +server.maxplayers 50 +server.hostname FluxTest +server.description 'Modded Rust on Flux Cloud' +server.worldsize 2000)
+era_env=(RCON_PASSWORD=secret 'SERVER_HOSTNAME=My Rust' 'SERVER_DESCRIPTION=a desc' SERVER_SEED=4242 FLUX_FRAMEWORK=carbon FLUX_RESTART_TIME=05:00 TZ=Etc/UTC)
+check "a server on the pre-Rust+ modded command line is unchanged" "$(IFS='~'; printf '%s' "${pre_modded_18[*]}")" "$(fill "${era_env[@]}" -- "${pre_modded_18[@]}")"
+check "a Vanilla command line of an earlier version is unchanged" "$(IFS='~'; printf '%s' "${pre_vanilla[*]}")" "$(fill "${era_env[@]}" -- "${pre_vanilla[@]}")"
+check "a server moved off pfeiffermax keeps its literal arguments" "$(IFS='~'; printf '%s' "${pfeiffermax[*]}")" "$(fill "${era_env[@]}" -- "${pfeiffermax[@]}")"
 check "WORLD_SIZE in range" "3500" "$(flux_world_size_from_env 3500)"
 check "WORLD_SIZE too small" "" "$(flux_world_size_from_env 500)"
 check "WORLD_SIZE too large" "" "$(flux_world_size_from_env 9000)"
