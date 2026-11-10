@@ -140,81 +140,15 @@ flux_valid_port() {
   printf '%s' "${value}"
 }
 
-# $1 = a flag (+rcon.port, -queryport), then the server's arguments. True when one of them is it.
-flux_has_flag() {
-  local flag="$1" arg
+# $1 = SERVER_PORT, then the server's arguments. Prints the port the game must be given with
+# `+server.port` when the arguments do not carry one and $1 is a usable port, else nothing.
+# A spec that is already at the 20 commands FluxOS allows (the Modded app) cannot spend two more
+# on the game port, which the hub moves off 28015 so several servers can share a node address.
+flux_server_port_fallback() {
+  local fallback="${1:-}"
   shift
-  for arg in "$@"; do
-    [ "${arg}" = "${flag}" ] && return 0
-  done
-  return 1
-}
-
-# The settings a spec can give as environment variables instead of command line arguments:
-# VARIABLE|flag|kind. A spec is limited to 20 commands AND to 20 variables, and a command line
-# spends two commands per setting, so the variables are the roomy way. Same defaults as the
-# marketplace specs' arguments. SERVER_SEED and WORLD_SIZE are NOT here: they are first-boot
-# settings written to server.cfg (see flux_map_cfg_lines), never arguments, because an argument
-# beats server.cfg and the dashboard edits server.cfg.
-FLUX_ENV_ARGS=(
-  "SERVER_PORT|+server.port|port"
-  "RCON_PORT|+rcon.port|port"
-  "QUERY_PORT|-queryport|port"
-  "APP_PORT|+app.port|port"
-  "RCON_PASSWORD|+rcon.password|text"
-  "SERVER_IDENTITY|+server.identity|identity"
-  "MAX_PLAYERS|+server.maxplayers|count"
-  "SERVER_HOSTNAME|+server.hostname|text"
-  "SERVER_DESCRIPTION|+server.description|text"
-)
-
-# $1 = a kind, $2 = a value. Prints the value when it suits the kind, else returns 1.
-flux_env_value_ok() {
-  case "$1" in
-    port) flux_valid_port "$2" >/dev/null ;;
-    identity) [[ "$2" =~ ^[A-Za-z0-9._-]+$ ]] ;;
-    count) [[ "$2" =~ ^[0-9]{1,4}$ ]] && [ "$((10#$2))" -ge 1 ] ;;
-    text) [ -n "$2" ] ;;
-    *) return 1 ;;
-  esac
-}
-
-# The server's arguments, then the environment. For each setting in FLUX_ENV_ARGS that the
-# arguments do not carry, and whose variable holds a usable value, `<flag> <value>` is appended:
-# arguments > environment > the game's default. A spec of the older shape (all arguments) is
-# therefore started exactly as before, and a spec with no arguments at all is started from its
-# variables. The values are used as they are, never expanded, so a `$` in a hostname survives.
-# A spec with NO arguments gets the four ports explicitly, at the numbers the marketplace specs
-# have always passed (28015, 28016, 28017, 28082), so a clean spec never depends on what the game
-# does when a port is left out. A spec with arguments gets nothing it did not ask for.
-# Sets FLUX_FILLED_ARGS; a variable that holds something unusable is named in FLUX_ENV_IGNORED.
-flux_fill_args_from_env() {
-  local entry var flag kind value clean=0
-  [ "$#" -eq 0 ] && clean=1
-  FLUX_FILLED_ARGS=("$@")
-  FLUX_ENV_IGNORED=()
-  for entry in "${FLUX_ENV_ARGS[@]}"; do
-    IFS='|' read -r var flag kind <<<"${entry}"
-    value="${!var-}"
-    if [ -n "${value}" ] && ! flux_has_flag "${flag}" "$@" && ! flux_env_value_ok "${kind}" "${value}"; then
-      FLUX_ENV_IGNORED+=("${var}")
-      value=""
-    fi
-    if [ -z "${value}" ] && [ "${clean}" = "1" ]; then
-      case "${var}" in
-        SERVER_PORT) value=28015 ;; RCON_PORT) value=28016 ;; QUERY_PORT) value=28017 ;; APP_PORT) value=28082 ;;
-      esac
-    fi
-    [ -n "${value}" ] || continue
-    flux_has_flag "${flag}" "$@" && continue
-    FLUX_FILLED_ARGS+=("${flag}" "${value}")
-  done
-}
-
-# $1 = WORLD_SIZE. Prints it when it is a size the game accepts (1000 to 6000), else nothing.
-flux_world_size_from_env() {
-  [[ "${1:-}" =~ ^[0-9]{4}$ ]] && [ "$((10#$1))" -ge 1000 ] && [ "$((10#$1))" -le 6000 ] && printf '%s' "$((10#$1))"
-  return 0
+  [ -z "$(flux_arg_value server.port "$@")" ] || return 0
+  flux_valid_port "${fallback}" || true
 }
 
 # ---------------------------------------------------------------------------------------------
@@ -242,21 +176,22 @@ flux_world_size_for_mb() {
   else printf '4500'; fi
 }
 
-# $1 = the server's identity directory, $2 = the map size to use (may be empty), $3 = a seed, then
-# the server's arguments. Prints the server.cfg lines a NEW server should start with: a map size for
+# $1 = the server's identity directory, $2 = memory in MB (may be empty), $3 = a seed, then the
+# server's arguments. Prints the server.cfg lines a NEW server should start with: a map size for
 # its plan and a seed of its own, instead of the engine's 4500 and 1337 that every server without
 # them shares. Prints nothing for a server that has ever had a world (a save, a wipe folder, the
 # marker below), for a convar the arguments already set, for one server.cfg already sets, and for a
 # server on a custom map. The server.cfg is read when the arguments carry nothing, which is how
 # the dashboard's Server Settings and its wipe keep working on these two settings.
 flux_map_cfg_lines() {
-  local dir="$1" size="$2" seed="$3" cfg
+  local dir="$1" mem="$2" seed="$3" cfg size
   shift 3
   cfg="${dir}/cfg/server.cfg"
   [ -f "${dir}/.flux-map-init" ] && return 0
   compgen -G "${dir}/proceduralmap.*" >/dev/null && return 0
   [ -d "${dir}/flux-wipes" ] && return 0
   if [ -f "${cfg}" ] && grep -qE '^[[:space:]]*server\.(level|levelurl)[[:space:]]' "${cfg}"; then return 0; fi
+  size="$(flux_world_size_for_mb "${mem}")"
   if [ -n "${size}" ] && [ -z "$(flux_arg_value server.worldsize "$@")" ] \
     && ! { [ -f "${cfg}" ] && grep -qE '^[[:space:]]*server\.worldsize[[:space:]]' "${cfg}"; }; then
     printf 'server.worldsize "%s"\n' "${size}"

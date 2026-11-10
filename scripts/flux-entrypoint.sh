@@ -61,18 +61,14 @@ flux_log "flux-entrypoint starting (image ${FLUX_IMAGE_VERSION:-dev}, ${framewor
 # The spec's arguments, ${VARS} expanded, as the image they were written for did.
 flux_expand_args "$@"
 set -- "${FLUX_EXPANDED_ARGS[@]+"${FLUX_EXPANDED_ARGS[@]}"}"
-# What the arguments do not carry comes from the environment (SERVER_PORT, RCON_PORT, ...): a spec
-# may give its settings either way, see flux_fill_args_from_env.
-flux_fill_args_from_env "$@"
-GAME_ARGS=("${FLUX_FILLED_ARGS[@]+"${FLUX_FILLED_ARGS[@]}"}")
-if [ "${#GAME_ARGS[@]}" -gt "$#" ]; then
-  flux_log "settings taken from the environment: $(printf '%s ' "${GAME_ARGS[@]:$#}" | sed -E 's/(\+rcon\.password) [^ ]*/\1 ***/')"
-fi
-[ "${#FLUX_ENV_IGNORED[@]}" -eq 0 ] || flux_log "WARN ignored, not usable values: ${FLUX_ENV_IGNORED[*]}"
+# SERVER_PORT stands in for `+server.port` when the arguments do not carry it.
+server_port="$(flux_server_port_fallback "${SERVER_PORT:-}" "$@")"
+[ -z "${server_port}" ] || set -- "$@" +server.port "${server_port}"
+GAME_ARGS=("$@")
 
 # RCON for our own helpers: the port and password the server is started with.
-rcon_port="$(flux_valid_port "$(flux_arg_value rcon.port "${GAME_ARGS[@]+"${GAME_ARGS[@]}"}")")" || rcon_port=28016
-rcon_password="$(flux_arg_value rcon.password "${GAME_ARGS[@]+"${GAME_ARGS[@]}"}")"
+rcon_port="$(flux_valid_port "$(flux_arg_value rcon.port "$@")")" || rcon_port=28016
+rcon_password="$(flux_arg_value rcon.password "$@")"
 {
   printf 'RCON_PORT=%s\n' "${rcon_port}"
   printf 'RCON_PASSWORD=%s\n' "${rcon_password}"
@@ -260,20 +256,14 @@ recover_saves() {
 # Before the first start of a NEW server only: a map sized for the plan and a seed of its own, in
 # server.cfg, where the dashboard reads and edits them. See flux_map_cfg_lines.
 init_map_settings() {
-  local identity dir lines size seed
+  local identity dir lines
   identity="$(flux_arg_value server.identity "${GAME_ARGS[@]+"${GAME_ARGS[@]}"}")"
   [ -n "${identity}" ] || identity="my_server_identity"
   [[ "${identity}" =~ ^[A-Za-z0-9._-]+$ ]] || return 0
   dir="${s}/server/${identity}"
   [ -f "${dir}/.flux-map-init" ] && return 0
   mkdir -p "${dir}/cfg" || return 0
-  # WORLD_SIZE and SERVER_SEED are the spec's choice for a new server; otherwise a size for the
-  # plan's memory and a seed of our own. Written to server.cfg, never passed as arguments.
-  size="$(flux_world_size_from_env "${WORLD_SIZE:-}")"
-  [ -n "${size}" ] || size="$(flux_world_size_for_mb "$(flux_memory_limit_mb)")"
-  seed="${SERVER_SEED:-}"
-  [[ "${seed}" =~ ^[0-9]{1,10}$ ]] || seed="$(( (RANDOM << 15 | RANDOM) % 2147483646 + 1 ))"
-  lines="$(flux_map_cfg_lines "${dir}" "${size}" "${seed}" "${GAME_ARGS[@]+"${GAME_ARGS[@]}"}")"
+  lines="$(flux_map_cfg_lines "${dir}" "$(flux_memory_limit_mb)" "$(( (RANDOM << 15 | RANDOM) % 2147483646 + 1 ))" "${GAME_ARGS[@]+"${GAME_ARGS[@]}"}")"
   if [ -n "${lines}" ]; then
     printf '%s\n' "${lines}" >>"${dir}/cfg/server.cfg"
     flux_log "new server: map settings written to server.cfg ($(printf '%s' "${lines}" | tr '\n' ' '))"
