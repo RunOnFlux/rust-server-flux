@@ -61,6 +61,9 @@ flux_log "flux-entrypoint starting (image ${FLUX_IMAGE_VERSION:-dev}, ${framewor
 # The spec's arguments, ${VARS} expanded, as the image they were written for did.
 flux_expand_args "$@"
 set -- "${FLUX_EXPANDED_ARGS[@]+"${FLUX_EXPANDED_ARGS[@]}"}"
+# SERVER_PORT stands in for `+server.port` when the arguments do not carry it.
+server_port="$(flux_server_port_fallback "${SERVER_PORT:-}" "$@")"
+[ -z "${server_port}" ] || set -- "$@" +server.port "${server_port}"
 GAME_ARGS=("$@")
 
 # RCON for our own helpers: the port and password the server is started with.

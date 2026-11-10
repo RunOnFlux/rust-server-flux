@@ -140,6 +140,17 @@ flux_valid_port() {
   printf '%s' "${value}"
 }
 
+# $1 = SERVER_PORT, then the server's arguments. Prints the port the game must be given with
+# `+server.port` when the arguments do not carry one and $1 is a usable port, else nothing.
+# A spec that is already at the 20 commands FluxOS allows (the Modded app) cannot spend two more
+# on the game port, which the hub moves off 28015 so several servers can share a node address.
+flux_server_port_fallback() {
+  local fallback="${1:-}"
+  shift
+  [ -z "$(flux_arg_value server.port "$@")" ] || return 0
+  flux_valid_port "${fallback}" || true
+}
+
 # The spec passes `${RCON_PASSWORD}` and friends inside the server arguments, and the image they
 # were written for expanded them. Sets FLUX_EXPANDED_ARGS.
 flux_expand_args() {

@@ -64,6 +64,7 @@ The arguments are the old images' (`+rcon.port 28016 +rcon.password ${RCON_PASSW
 | `FLUX_UPDATE_WARN_MINUTES` | 5 | 0..30 |
 | `FLUX_RESTART_TIME` / `TZ` | (off) / UTC | `HH:MM` daily restart |
 | `FLUX_RESTART_WARN_MINUTES` | 5 | 0..30 |
+| `SERVER_PORT` | (none) | the game port, used as `+server.port` when the arguments carry none |
 | `STEAM_BRANCH` | public | a Steam beta branch |
 | `SKIP_UPDATE` | off | do not run SteamCMD when the game is installed |
 
@@ -96,3 +97,4 @@ docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:stable -x scripts/*.s
 - **1.0.0** (2026-10-23): first release.
 - **1.0.1** (2026-10-23): repairs a save that was cut off while being written, before each start.
 - **1.0.2** (2026-10-23): Carbon servers hung at boot forever: Carbon's self-updater forks `curl`, and on Flux nodes that fork never reaches exec. It is now turned off in `carbon/config.json` before every start (the image keeps Carbon updated itself), and game processes left behind by a server that ended are killed before the next one starts.
+- **1.0.3**: `SERVER_PORT` stands in for `+server.port` when the arguments do not carry one. The Modded app is at the 20 commands FluxOS allows, so the hub moves its game port (off 28015, so servers can share a node address) through the environment.

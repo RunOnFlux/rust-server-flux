@@ -71,6 +71,10 @@ check "an absent convar is empty" "" "$(flux_arg_value server.seed "${args[@]}")
 check "the last one wins" "2" "$(flux_arg_value a +a 1 +a 2)"
 check "a convar at the very end has no value" "" "$(flux_arg_value a x +a)"
 
+check "SERVER_PORT fills a missing +server.port" "45000" "$(flux_server_port_fallback 45000 +rcon.port 28016)"
+check "an argument beats SERVER_PORT" "" "$(flux_server_port_fallback 45000 +server.port 28015)"
+check "a bad SERVER_PORT is ignored" "" "$(flux_server_port_fallback abc +rcon.port 28016)"
+check "no SERVER_PORT is nothing" "" "$(flux_server_port_fallback "" +rcon.port 28016)"
 check "a port" "28016" "$(flux_valid_port 28016)"
 check "leading zeros" "80" "$(flux_valid_port 0080)"
 check "too large" "1" "$(status flux_valid_port 70000)"
