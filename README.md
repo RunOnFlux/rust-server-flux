@@ -53,8 +53,13 @@ containerData: g:/srv/rust/server/<identity>|ml:game:/srv/rust|m:carbon:/srv/rus
 
 Docker mounts the parent first, so the two folders inside `/srv/rust` show through the install.
 
-The arguments are the old images' (`+rcon.port 28016 +rcon.password ${RCON_PASSWORD}
-+server.identity ...`), with `${VARS}` expanded as they were.
+A server is configured in either of two ways, and they mix: the arguments are the old images'
+(`+rcon.port 28016 +rcon.password ${RCON_PASSWORD} +server.identity ...`, with `${VARS}` expanded
+as they were), and for every setting the arguments do NOT carry, the variables below are used.
+Arguments win over variables. A spec with no arguments at all runs from its variables alone: a
+FluxOS spec is limited to 20 commands and to 20 variables, and a setting costs two commands but
+one variable. Variable values are used as they are (a `$` in a hostname stays), and an unusable
+one (a port that is not 1 to 65535, an identity with a `/`) is ignored with a warning.
 
 | Variable | Default | |
 |---|---|---|
@@ -64,7 +69,9 @@ The arguments are the old images' (`+rcon.port 28016 +rcon.password ${RCON_PASSW
 | `FLUX_UPDATE_WARN_MINUTES` | 5 | 0..30 |
 | `FLUX_RESTART_TIME` / `TZ` | (off) / UTC | `HH:MM` daily restart |
 | `FLUX_RESTART_WARN_MINUTES` | 5 | 0..30 |
-| `SERVER_PORT` | (none) | the game port, used as `+server.port` when the arguments carry none |
+| `SERVER_PORT` `RCON_PORT` `QUERY_PORT` `APP_PORT` | game 28015, RCON 28016, query 28017, Rust+ 28082 | the ports, used when the arguments carry none |
+| `RCON_PASSWORD` `SERVER_IDENTITY` `MAX_PLAYERS` `SERVER_HOSTNAME` `SERVER_DESCRIPTION` | (the game's) | `+rcon.password`, `+server.identity`, `+server.maxplayers`, `+server.hostname`, `+server.description`, used when the arguments carry none |
+| `WORLD_SIZE` `SERVER_SEED` | memory sized, random | the map of a NEW server, written to `server.cfg` on the first boot (never an argument) |
 | `STEAM_BRANCH` | public | a Steam beta branch |
 | `SKIP_UPDATE` | off | do not run SteamCMD when the game is installed |
 
@@ -97,5 +104,5 @@ docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:stable -x scripts/*.s
 - **1.0.0** (2026-10-23): first release.
 - **1.0.1** (2026-10-23): repairs a save that was cut off while being written, before each start.
 - **1.0.2** (2026-10-23): Carbon servers hung at boot forever: Carbon's self-updater forks `curl`, and on Flux nodes that fork never reaches exec. It is now turned off in `carbon/config.json` before every start (the image keeps Carbon updated itself), and game processes left behind by a server that ended are killed before the next one starts.
-- **1.0.3**: `SERVER_PORT` stands in for `+server.port` when the arguments do not carry one. The Modded app is at the 20 commands FluxOS allows, so the hub moves its game port (off 28015, so servers can share a node address) through the environment.
+- **1.0.3**: a spec can give its settings as environment variables instead of arguments (see the table above): ports, RCON password, identity, max players, hostname, description, and for a new server the map size and seed. Arguments still win, so a spec of the older shape starts exactly as before (proved by tests that feed both live marketplace specs through the filler). The Modded app is at the 20 commands FluxOS allows, so the hub moves its game port (off 28015, so servers can share a node address) through `SERVER_PORT`.
   A NEW server (no save, no wipe folder, no earlier decision) also starts with a map of its own: a size for its memory (3000 up to 9.5 GB, 3500 up to 13.5 GB, 4500 above; the engine's 4500 generates for ~28 minutes and holds 94% of an 8 GB plan) and a random seed, written to `cfg/server.cfg`, where the dashboard reads and edits them. Nothing is written for a convar the arguments or the file already set, for a custom map, or for a server that has had a world. Measured: `Generating procedural map of size 3000 with seed 869392548` on a new server with no map arguments.

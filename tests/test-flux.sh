@@ -1,5 +1,5 @@
 #!/bin/bash
-# shellcheck disable=SC2016  # '${VARS}' are expanded by flux_expand_args, which is the point
+# shellcheck disable=SC2016,SC2030,SC2031  # '${VARS}' are expanded by flux_expand_args; the env checks run in subshells on purpose
 # Unit tests for the pure parts of the scripts: no Docker, no Steam, no game.
 #
 #   ./tests/test-flux.sh
@@ -77,24 +77,55 @@ check "8 GB gets a 3000 map" "3000" "$(flux_world_size_for_mb 8000)"
 check "12 GB gets 3500" "3500" "$(flux_world_size_for_mb 12000)"
 check "24 GB gets 4500" "4500" "$(flux_world_size_for_mb 24000)"
 check "an unknown memory gets no size" "" "$(flux_world_size_for_mb "")"
-check "a new server gets size and seed" $'server.worldsize "3000"\nserver.seed "777"' "$(flux_map_cfg_lines "${mapdir}" 8000 777 +rcon.port 1)"
-check "the arguments' size is left alone" 'server.seed "777"' "$(flux_map_cfg_lines "${mapdir}" 8000 777 +server.worldsize 2000)"
-check "the arguments' size and seed are left alone" "" "$(flux_map_cfg_lines "${mapdir}" 8000 777 +server.worldsize 2000 +server.seed 5)"
+check "a new server gets size and seed" $'server.worldsize "3000"\nserver.seed "777"' "$(flux_map_cfg_lines "${mapdir}" 3000 777 +rcon.port 1)"
+check "the arguments' size is left alone" 'server.seed "777"' "$(flux_map_cfg_lines "${mapdir}" 3000 777 +server.worldsize 2000)"
+check "the arguments' size and seed are left alone" "" "$(flux_map_cfg_lines "${mapdir}" 3000 777 +server.worldsize 2000 +server.seed 5)"
 mkdir -p "${mapdir}/cfg"; printf 'server.seed "5"\n' >"${mapdir}/cfg/server.cfg"
-check "a seed in server.cfg is left alone" 'server.worldsize "3000"' "$(flux_map_cfg_lines "${mapdir}" 8000 777)"
+check "a seed in server.cfg is left alone" 'server.worldsize "3000"' "$(flux_map_cfg_lines "${mapdir}" 3000 777)"
 printf 'server.level "CraggyIsland"\n' >"${mapdir}/cfg/server.cfg"
-check "a custom map gets nothing" "" "$(flux_map_cfg_lines "${mapdir}" 8000 777)"
+check "a custom map gets nothing" "" "$(flux_map_cfg_lines "${mapdir}" 3000 777)"
 rm "${mapdir}/cfg/server.cfg"; : >"${mapdir}/proceduralmap.4500.1337.289.sav"
-check "a server with a save gets nothing" "" "$(flux_map_cfg_lines "${mapdir}" 8000 777)"
+check "a server with a save gets nothing" "" "$(flux_map_cfg_lines "${mapdir}" 3000 777)"
 rm "${mapdir}/proceduralmap.4500.1337.289.sav"; mkdir "${mapdir}/flux-wipes"
-check "a server that was wiped gets nothing" "" "$(flux_map_cfg_lines "${mapdir}" 8000 777)"
+check "a server that was wiped gets nothing" "" "$(flux_map_cfg_lines "${mapdir}" 3000 777)"
 rmdir "${mapdir}/flux-wipes"; : >"${mapdir}/.flux-map-init"
-check "a server already decided gets nothing" "" "$(flux_map_cfg_lines "${mapdir}" 8000 777)"
+check "a server already decided gets nothing" "" "$(flux_map_cfg_lines "${mapdir}" 3000 777)"
 rm -rf "${mapdir}"
-check "SERVER_PORT fills a missing +server.port" "45000" "$(flux_server_port_fallback 45000 +rcon.port 28016)"
-check "an argument beats SERVER_PORT" "" "$(flux_server_port_fallback 45000 +server.port 28015)"
-check "a bad SERVER_PORT is ignored" "" "$(flux_server_port_fallback abc +rcon.port 28016)"
-check "no SERVER_PORT is nothing" "" "$(flux_server_port_fallback "" +rcon.port 28016)"
+# --- settings from the environment ---------------------------------------------------------------
+fill() { # the filled arguments joined by "~", env given as VAR=value words before "--"
+  local envs=() a
+  while [ "$1" != "--" ]; do envs+=("$1"); shift; done
+  shift
+  ( for a in "${envs[@]+"${envs[@]}"}"; do export "${a?}"; done; flux_fill_args_from_env "$@"; IFS='~'; printf '%s' "${FLUX_FILLED_ARGS[*]}" )
+}
+check "SERVER_PORT fills a missing +server.port" "+rcon.port~1~+server.port~45000" "$(fill SERVER_PORT=45000 -- +rcon.port 1)"
+check "an argument beats SERVER_PORT" "+server.port~28015" "$(fill SERVER_PORT=45000 -- +server.port 28015)"
+check "a bad SERVER_PORT is ignored" "+rcon.port~1" "$(fill SERVER_PORT=abc -- +rcon.port 1)"
+check "no variable is no change" "+rcon.port~1" "$(fill -- +rcon.port 1)"
+check "no arguments, everything from the environment" \
+  "+server.port~45000~+rcon.port~45001~-queryport~45002~+app.port~45003~+rcon.password~pw~+server.identity~rust~+server.maxplayers~100~+server.hostname~My \$erver~+server.description~d" \
+  "$(fill SERVER_PORT=45000 RCON_PORT=45001 QUERY_PORT=45002 APP_PORT=45003 RCON_PASSWORD=pw SERVER_IDENTITY=rust MAX_PLAYERS=100 'SERVER_HOSTNAME=My $erver' SERVER_DESCRIPTION=d --)"
+check "-queryport in the arguments beats QUERY_PORT" "-queryport~28017" "$(fill QUERY_PORT=45002 -- -queryport 28017)"
+check "a bad identity, count and port are left out" "" "$(fill SERVER_IDENTITY='../x' MAX_PLAYERS=0 RCON_PORT=70000 --)"
+check "the ignored ones are named" "RCON_PORT SERVER_IDENTITY MAX_PLAYERS" "$(SERVER_IDENTITY='a/b' MAX_PLAYERS=abc RCON_PORT=0 bash -c 'source scripts/flux-lib.sh; flux_fill_args_from_env; echo "${FLUX_ENV_IGNORED[*]}"')"
+check "an empty variable is not a setting" "" "$(fill SERVER_HOSTNAME= --)"
+# The two marketplace specs as they are live (2026-11-10): the same command line, with the
+# environment a deploy gives them, must come out of the filler UNCHANGED.
+vanilla_args=(+server.port 28015 +rcon.port 28016 +rcon.password '${RCON_PASSWORD}' +server.identity rust +server.maxplayers 50
+  +server.hostname '${SERVER_HOSTNAME}' +server.description '${SERVER_DESCRIPTION}' -queryport 28017 +app.port 28082)
+oxide_args=(+rcon.port 28016 +rcon.password '${RCON_PASSWORD}' +server.identity rustcarbon +server.maxplayers 50
+  +server.hostname '${SERVER_HOSTNAME}' +server.description '${SERVER_DESCRIPTION}' -queryport 28017 +app.port 28082
+  +server.worldsize 3000 +server.seed '${SERVER_SEED}')
+deploy_env=(RCON_PASSWORD=secret 'SERVER_HOSTNAME=My Rust' 'SERVER_DESCRIPTION=a desc' SERVER_SEED=4242 SERVER_IDENTITY=other MAX_PLAYERS=200 RCON_PORT=1111 QUERY_PORT=2222 APP_PORT=3333 WORLD_SIZE=4000)
+expanded() { ( export RCON_PASSWORD=secret 'SERVER_HOSTNAME=My Rust' 'SERVER_DESCRIPTION=a desc' SERVER_SEED=4242; flux_expand_args "$@"; IFS='~'; printf '%s' "${FLUX_EXPANDED_ARGS[*]}" ) }
+refilled() { ( export RCON_PASSWORD=secret 'SERVER_HOSTNAME=My Rust' 'SERVER_DESCRIPTION=a desc' SERVER_SEED=4242; flux_expand_args "$@"; set -- "${FLUX_EXPANDED_ARGS[@]}"; fill "${deploy_env[@]}" -- "$@" ) }
+check "the live Vanilla spec is not changed by the environment" "$(expanded "${vanilla_args[@]}")" "$(refilled "${vanilla_args[@]}")"
+check "the live Modded spec is not changed either" "$(expanded "${oxide_args[@]}")" "$(refilled "${oxide_args[@]}")"
+check "the live Modded spec gains only SERVER_PORT" "$(expanded "${oxide_args[@]}")~+server.port~45000" "$(deploy_env+=(SERVER_PORT=45000); refilled "${oxide_args[@]}")"
+check "WORLD_SIZE in range" "3500" "$(flux_world_size_from_env 3500)"
+check "WORLD_SIZE too small" "" "$(flux_world_size_from_env 500)"
+check "WORLD_SIZE too large" "" "$(flux_world_size_from_env 9000)"
+check "WORLD_SIZE not a number" "" "$(flux_world_size_from_env abc)"
 check "a port" "28016" "$(flux_valid_port 28016)"
 check "leading zeros" "80" "$(flux_valid_port 0080)"
 check "too large" "1" "$(status flux_valid_port 70000)"
