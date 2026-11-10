@@ -102,13 +102,16 @@ check "SERVER_PORT fills a missing +server.port" "+rcon.port~1~+server.port~4500
 check "an argument beats SERVER_PORT" "+server.port~28015" "$(fill SERVER_PORT=45000 -- +server.port 28015)"
 check "a bad SERVER_PORT is ignored" "+rcon.port~1" "$(fill SERVER_PORT=abc -- +rcon.port 1)"
 check "no variable is no change" "+rcon.port~1" "$(fill -- +rcon.port 1)"
+check "no arguments and no variables: the four ports at the marketplace numbers" "+server.port~28015~+rcon.port~28016~-queryport~28017~+app.port~28082" "$(fill --)"
+check "no arguments: a rolled port replaces only its own default" "+server.port~45000~+rcon.port~28016~-queryport~28017~+app.port~28082" "$(fill SERVER_PORT=45000 --)"
+check "arguments but no variables: no default is added" "+rcon.port~1" "$(fill -- +rcon.port 1)"
 check "no arguments, everything from the environment" \
   "+server.port~45000~+rcon.port~45001~-queryport~45002~+app.port~45003~+rcon.password~pw~+server.identity~rust~+server.maxplayers~100~+server.hostname~My \$erver~+server.description~d" \
   "$(fill SERVER_PORT=45000 RCON_PORT=45001 QUERY_PORT=45002 APP_PORT=45003 RCON_PASSWORD=pw SERVER_IDENTITY=rust MAX_PLAYERS=100 'SERVER_HOSTNAME=My $erver' SERVER_DESCRIPTION=d --)"
 check "-queryport in the arguments beats QUERY_PORT" "-queryport~28017" "$(fill QUERY_PORT=45002 -- -queryport 28017)"
-check "a bad identity, count and port are left out" "" "$(fill SERVER_IDENTITY='../x' MAX_PLAYERS=0 RCON_PORT=70000 --)"
+check "a bad identity, count and port are left out" "+server.port~28015~+rcon.port~28016~-queryport~28017~+app.port~28082" "$(fill SERVER_IDENTITY='../x' MAX_PLAYERS=0 RCON_PORT=70000 --)"
 check "the ignored ones are named" "RCON_PORT SERVER_IDENTITY MAX_PLAYERS" "$(SERVER_IDENTITY='a/b' MAX_PLAYERS=abc RCON_PORT=0 bash -c 'source scripts/flux-lib.sh; flux_fill_args_from_env; echo "${FLUX_ENV_IGNORED[*]}"')"
-check "an empty variable is not a setting" "" "$(fill SERVER_HOSTNAME= --)"
+check "an empty variable is not a setting" "+server.port~28015~+rcon.port~28016~-queryport~28017~+app.port~28082" "$(fill SERVER_HOSTNAME= --)"
 # The two marketplace specs as they are live (2026-11-10): the same command line, with the
 # environment a deploy gives them, must come out of the filler UNCHANGED.
 vanilla_args=(+server.port 28015 +rcon.port 28016 +rcon.password '${RCON_PASSWORD}' +server.identity rust +server.maxplayers 50

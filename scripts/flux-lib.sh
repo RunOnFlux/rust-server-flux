@@ -184,21 +184,30 @@ flux_env_value_ok() {
 # arguments > environment > the game's default. A spec of the older shape (all arguments) is
 # therefore started exactly as before, and a spec with no arguments at all is started from its
 # variables. The values are used as they are, never expanded, so a `$` in a hostname survives.
+# A spec with NO arguments gets the four ports explicitly, at the numbers the marketplace specs
+# have always passed (28015, 28016, 28017, 28082), so a clean spec never depends on what the game
+# does when a port is left out. A spec with arguments gets nothing it did not ask for.
 # Sets FLUX_FILLED_ARGS; a variable that holds something unusable is named in FLUX_ENV_IGNORED.
 flux_fill_args_from_env() {
-  local entry var flag kind value
+  local entry var flag kind value clean=0
+  [ "$#" -eq 0 ] && clean=1
   FLUX_FILLED_ARGS=("$@")
   FLUX_ENV_IGNORED=()
   for entry in "${FLUX_ENV_ARGS[@]}"; do
     IFS='|' read -r var flag kind <<<"${entry}"
     value="${!var-}"
+    if [ -n "${value}" ] && ! flux_has_flag "${flag}" "$@" && ! flux_env_value_ok "${kind}" "${value}"; then
+      FLUX_ENV_IGNORED+=("${var}")
+      value=""
+    fi
+    if [ -z "${value}" ] && [ "${clean}" = "1" ]; then
+      case "${var}" in
+        SERVER_PORT) value=28015 ;; RCON_PORT) value=28016 ;; QUERY_PORT) value=28017 ;; APP_PORT) value=28082 ;;
+      esac
+    fi
     [ -n "${value}" ] || continue
     flux_has_flag "${flag}" "$@" && continue
-    if flux_env_value_ok "${kind}" "${value}"; then
-      FLUX_FILLED_ARGS+=("${flag}" "${value}")
-    else
-      FLUX_ENV_IGNORED+=("${var}")
-    fi
+    FLUX_FILLED_ARGS+=("${flag}" "${value}")
   done
 }
 

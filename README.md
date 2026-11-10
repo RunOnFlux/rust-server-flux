@@ -58,7 +58,7 @@ A server is configured in either of two ways, and they mix: the arguments are th
 as they were), and for every setting the arguments do NOT carry, the variables below are used.
 Arguments win over variables. A spec with no arguments at all runs from its variables alone: a
 FluxOS spec is limited to 20 commands and to 20 variables, and a setting costs two commands but
-one variable. Variable values are used as they are (a `$` in a hostname stays), and an unusable
+one variable. A spec with no arguments at all also gets the four ports at their usual numbers (28015, 28016, 28017, 28082) when no variable names them. Variable values are used as they are (a `$` in a hostname stays), and an unusable
 one (a port that is not 1 to 65535, an identity with a `/`) is ignored with a warning.
 
 | Variable | Default | |
