@@ -253,6 +253,25 @@ recover_saves() {
   done < <(flux_recover_interrupted_saves "${s}/server/${identity}")
 }
 
+# Before the first start of a NEW server only: a map sized for the plan and a seed of its own, in
+# server.cfg, where the dashboard reads and edits them. See flux_map_cfg_lines.
+init_map_settings() {
+  local identity dir lines
+  identity="$(flux_arg_value server.identity "${GAME_ARGS[@]+"${GAME_ARGS[@]}"}")"
+  [ -n "${identity}" ] || identity="my_server_identity"
+  [[ "${identity}" =~ ^[A-Za-z0-9._-]+$ ]] || return 0
+  dir="${s}/server/${identity}"
+  [ -f "${dir}/.flux-map-init" ] && return 0
+  mkdir -p "${dir}/cfg" || return 0
+  lines="$(flux_map_cfg_lines "${dir}" "$(flux_memory_limit_mb)" "$(( (RANDOM << 15 | RANDOM) % 2147483646 + 1 ))" "${GAME_ARGS[@]+"${GAME_ARGS[@]}"}")"
+  if [ -n "${lines}" ]; then
+    printf '%s\n' "${lines}" >>"${dir}/cfg/server.cfg"
+    flux_log "new server: map settings written to server.cfg ($(printf '%s' "${lines}" | tr '\n' ' '))"
+  fi
+  # Decided once: a later wipe or an edit in the dashboard is never overridden.
+  : >"${dir}/.flux-map-init"
+}
+
 start_generation() {
   generation=$((generation + 1))
   rm -f "${FLUX_RESTART_MARKER}" "${FLUX_STARTED_AT}"
@@ -262,6 +281,7 @@ start_generation() {
   [ "${terminating}" = "1" ] && return 2
   disk_note
   recover_saves
+  init_map_settings
   flux_log "starting the server (generation ${generation})"
   date -u +%s >"${FLUX_STARTED_AT}"
   (

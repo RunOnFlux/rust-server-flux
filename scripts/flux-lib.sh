@@ -151,6 +151,57 @@ flux_server_port_fallback() {
   flux_valid_port "${fallback}" || true
 }
 
+# ---------------------------------------------------------------------------------------------
+# A map of its own, sized for the plan, on a server's first boot.
+# ---------------------------------------------------------------------------------------------
+
+# The container's memory limit in MB, or nothing when there is none (cgroup v2, then v1).
+flux_memory_limit_mb() {
+  local raw=""
+  if [ -r /sys/fs/cgroup/memory.max ]; then raw="$(cat /sys/fs/cgroup/memory.max)"
+  elif [ -r /sys/fs/cgroup/memory/memory.limit_in_bytes ]; then raw="$(cat /sys/fs/cgroup/memory/memory.limit_in_bytes)"; fi
+  [[ "${raw}" =~ ^[0-9]+$ ]] || return 0
+  # An unlimited container reports a number near 2^63.
+  [ "${#raw}" -le 13 ] || return 0
+  printf '%s' $((raw / 1048576))
+}
+
+# $1 = memory in MB. Prints the map size that memory carries comfortably: the engine's own 4500
+# generates for ~28 minutes and holds 94% of an 8 GB plan (measured), so the smaller plans get
+# less. Nothing for an unknown or empty memory.
+flux_world_size_for_mb() {
+  [[ "${1:-}" =~ ^[0-9]+$ ]] && [ "$1" -gt 0 ] || return 0
+  if [ "$1" -le 9500 ]; then printf '3000'
+  elif [ "$1" -le 13500 ]; then printf '3500'
+  else printf '4500'; fi
+}
+
+# $1 = the server's identity directory, $2 = memory in MB (may be empty), $3 = a seed, then the
+# server's arguments. Prints the server.cfg lines a NEW server should start with: a map size for
+# its plan and a seed of its own, instead of the engine's 4500 and 1337 that every server without
+# them shares. Prints nothing for a server that has ever had a world (a save, a wipe folder, the
+# marker below), for a convar the arguments already set, for one server.cfg already sets, and for a
+# server on a custom map. The server.cfg is read when the arguments carry nothing, which is how
+# the dashboard's Server Settings and its wipe keep working on these two settings.
+flux_map_cfg_lines() {
+  local dir="$1" mem="$2" seed="$3" cfg size
+  shift 3
+  cfg="${dir}/cfg/server.cfg"
+  [ -f "${dir}/.flux-map-init" ] && return 0
+  compgen -G "${dir}/proceduralmap.*" >/dev/null && return 0
+  [ -d "${dir}/flux-wipes" ] && return 0
+  if [ -f "${cfg}" ] && grep -qE '^[[:space:]]*server\.(level|levelurl)[[:space:]]' "${cfg}"; then return 0; fi
+  size="$(flux_world_size_for_mb "${mem}")"
+  if [ -n "${size}" ] && [ -z "$(flux_arg_value server.worldsize "$@")" ] \
+    && ! { [ -f "${cfg}" ] && grep -qE '^[[:space:]]*server\.worldsize[[:space:]]' "${cfg}"; }; then
+    printf 'server.worldsize "%s"\n' "${size}"
+  fi
+  if [[ "${seed}" =~ ^[0-9]{1,10}$ ]] && [ -z "$(flux_arg_value server.seed "$@")" ] \
+    && ! { [ -f "${cfg}" ] && grep -qE '^[[:space:]]*server\.seed[[:space:]]' "${cfg}"; }; then
+    printf 'server.seed "%s"\n' "${seed}"
+  fi
+}
+
 # The spec passes `${RCON_PASSWORD}` and friends inside the server arguments, and the image they
 # were written for expanded them. Sets FLUX_EXPANDED_ARGS.
 flux_expand_args() {
